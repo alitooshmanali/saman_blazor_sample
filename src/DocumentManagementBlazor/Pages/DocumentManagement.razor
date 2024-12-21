@@ -1,0 +1,122 @@
+﻿@page "/documents"
+@inject IJSRuntime JSRuntime
+@using DocumentManagementBlazor.V1.Aggregates.Documents
+@inject DocumentService documentservice
+
+<h3>مدیریت مستندات</h3>
+
+<!-- Form for Upload -->
+<EditForm Model="uploadModel" OnValidSubmit="HandleUpload">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div>
+        <label>نام فایل:</label>
+        <InputText @bind-Value="uploadModel.FileName" />
+    </div>
+    <div>
+        <label>موجودیت مرتبط:</label>
+        <InputText @bind-Value="uploadModel.EntityType" />
+    </div>
+    <div>
+        <label>موجودیت کلید:</label>
+        <InputText @bind-Value="entityId" />
+    </div>
+    <div>
+        <label>بارگزاری کننده:</label>
+        <InputText @bind-Value="uploadModel.UploadedBy" />
+    </div>
+    <div>
+        <label>فایل:</label>
+        <InputFile OnChange="HandleFileChange" />
+    </div>
+    <button type="submit">آپلود</button>
+</EditForm>
+
+<hr />
+
+<!-- List of Documents -->
+<h4>مستندات آپلود شده</h4>
+@if (documents == null)
+{
+    <p>در حال بارگذاری...</p>
+}
+else
+{
+    <ul>
+        @foreach (var doc in documents)
+        {
+            <li>@doc.FileName - <button @onclick="() => DownloadFile(doc.Id)">دانلود</button></li>
+        }
+    </ul>
+}
+
+@code {
+    private DocumentRequest uploadModel = new();
+
+    private List<DocumentResponse>? documents;
+
+    private byte[]? fileContent;
+
+    private string entityId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Load documents (Mocked for now)
+        documents = new List<DocumentResponse>(); // Load from API or DB
+        await LoadDocuments();
+    }
+
+    private async Task HandleUpload()
+    {
+        var fileName = await documentservice.UploadDocumentAsync(new V1.Aggregates.Documents.DocumentRequest
+            {
+                FileName = uploadModel.FileName,
+                FileContent = fileContent!,
+                FileExtension = uploadModel.FileExtension,
+                EntityType = uploadModel.EntityType,
+                EntityId = Guid.Parse(entityId),
+                UploadedBy = uploadModel.UploadedBy
+            }, CancellationToken.None);
+
+        await LoadDocuments();
+    }
+
+    private async Task LoadDocuments()
+    {
+        var results = await documentservice.GetAllDocuments(new V1.Models.SearchModel
+            {
+                PageIndex = 1,
+                PageSize = 30
+            }, CancellationToken.None);
+
+        documents = results.Values.ToList();
+    }
+
+    private async Task HandleFileChange(InputFileChangeEventArgs e)
+    {
+        // var file = e.File;
+        // using var stream = new MemoryStream();
+        // await file.OpenReadStream().CopyToAsync(stream);
+        // fileContent = stream.ToArray();
+        // uploadModel.FileExtension = Path.GetExtension(file.Name);
+
+        var file = e.File;
+        var buffer = new byte[file.Size];
+        await file.OpenReadStream().ReadAsync(buffer);
+
+        
+        fileContent = buffer;
+    }
+
+    private async Task DownloadFile(Guid documentId)
+    {
+        var document = await documentservice.GetDocumentById(documentId, CancellationToken.None);
+
+        if (document != null)
+        {
+            var base64 = Convert.ToBase64String(document.Values.FileContent);
+            await JSRuntime.InvokeVoidAsync("downloadFile", document.Values.FileName, document.Values.FileExtension, base64);
+        }
+    }
+}
